@@ -93,7 +93,8 @@
     "publish": {
       "provider": "github",
       "owner": "crackers25",
-      "repo": "dailytracker"
+      "repo": "dailytracker",
+      "releaseType": "release"
     }
   }
 }
