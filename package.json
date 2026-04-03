@@ -1,6 +1,6 @@
 {
   "name": "dailytracker",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "A desktop app for tracking daily quantitative and qualitative data over time",
   "main": "./out/main/index.js",
   "author": "",
