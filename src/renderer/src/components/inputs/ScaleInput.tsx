@@ -11,7 +11,21 @@ export default function ScaleInput({ config, value, onChange }: Props): React.Re
   const min = config.min ?? 0
   const max = config.max ?? 10
   const step = config.step ?? 1
-  const numVal = value !== '' ? Number(value) : Math.round((min + max) / 2)
+  const midpoint = Math.round((min + max) / 2)
+
+  if (value === '') {
+    return (
+      <button
+        type="button"
+        onClick={() => onChange(String(midpoint))}
+        className="text-sm text-primary-600 dark:text-primary-400 hover:underline"
+      >
+        Tap to set value
+      </button>
+    )
+  }
+
+  const numVal = Number(value)
 
   return (
     <div className="space-y-2">

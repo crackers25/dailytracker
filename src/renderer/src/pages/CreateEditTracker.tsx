@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import Layout from '../components/ui/Layout'
@@ -21,6 +21,7 @@ interface DraftDataPoint {
   type: DataPointType
   config: Record<string, unknown>
   isNew?: boolean
+  hasValues?: boolean
 }
 
 export default function CreateEditTracker(): React.ReactElement {
@@ -38,6 +39,10 @@ export default function CreateEditTracker(): React.ReactElement {
   const [error, setError] = useState<string | null>(null)
   const [step, setStep] = useState<'info' | 'datapoints'>('info')
 
+  // Drag-and-drop state
+  const dragIndex = useRef<number | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+
   useEffect(() => {
     if (!isEdit || !id) return
     setLoading(true)
@@ -51,11 +56,12 @@ export default function CreateEditTracker(): React.ReactElement {
       setStartDate(t.startDate)
       if (dpRes.dataPoints) {
         setDataPoints(
-          (dpRes.dataPoints as DataPoint[]).map((dp) => ({
+          (dpRes.dataPoints as (DataPoint & { hasValues?: boolean })[]).map((dp) => ({
             id: dp.id,
             name: dp.name,
             type: dp.type,
-            config: (dp.config as Record<string, unknown>) ?? {}
+            config: (dp.config as Record<string, unknown>) ?? {},
+            hasValues: dp.hasValues ?? false
           }))
         )
       }
@@ -117,6 +123,12 @@ export default function CreateEditTracker(): React.ReactElement {
 
   const removeDataPoint = async (index: number): Promise<void> => {
     const dp = dataPoints[index]
+    if (dp.id && !dp.isNew && dp.hasValues) {
+      const ok = window.confirm(
+        `"${dp.name}" has existing recorded data. Deleting it will permanently remove all values for this field. This cannot be undone. Continue?`
+      )
+      if (!ok) return
+    }
     if (dp.id && !dp.isNew) {
       await window.api.dataPoints.delete(dp.id)
     }
@@ -128,13 +140,36 @@ export default function CreateEditTracker(): React.ReactElement {
       prev.map((dp, i) => {
         if (i !== index) return dp
         const next = { ...dp, ...updates }
-        // Reset config when type changes
         if (updates.type && updates.type !== dp.type) {
           next.config = defaultConfig(updates.type)
         }
         return next
       })
     )
+  }
+
+  // Drag handlers
+  const handleDragStart = (index: number): void => {
+    dragIndex.current = index
+  }
+
+  const handleDragOver = (e: React.DragEvent, overIndex: number): void => {
+    e.preventDefault()
+    setDragOverIndex(overIndex)
+    const from = dragIndex.current
+    if (from === null || from === overIndex) return
+    dragIndex.current = overIndex
+    setDataPoints((prev) => {
+      const next = [...prev]
+      const [item] = next.splice(from, 1)
+      next.splice(overIndex, 0, item)
+      return next
+    })
+  }
+
+  const handleDragEnd = (): void => {
+    dragIndex.current = null
+    setDragOverIndex(null)
   }
 
   if (loading) {
@@ -232,12 +267,20 @@ export default function CreateEditTracker(): React.ReactElement {
             )}
 
             {dataPoints.map((dp, i) => (
-              <DataPointEditor
+              <div
                 key={i}
-                dp={dp}
-                onChange={(updates) => updateDataPoint(i, updates)}
-                onRemove={() => removeDataPoint(i)}
-              />
+                draggable
+                onDragStart={() => handleDragStart(i)}
+                onDragOver={(e) => handleDragOver(e, i)}
+                onDragEnd={handleDragEnd}
+                className={`transition-opacity ${dragOverIndex === i && dragIndex.current !== i ? 'opacity-50' : 'opacity-100'}`}
+              >
+                <DataPointEditor
+                  dp={dp}
+                  onChange={(updates) => updateDataPoint(i, updates)}
+                  onRemove={() => removeDataPoint(i)}
+                />
+              </div>
             ))}
 
             {dataPoints.length > 0 && (
@@ -284,10 +327,26 @@ function DataPointEditor({
   onRemove: () => void
 }): React.ReactElement {
   const typeInfo = DATA_POINT_TYPES.find((t) => t.value === dp.type)
+  const typeLocked = !dp.isNew && !!dp.hasValues
 
   return (
     <div className="card p-4 space-y-3">
       <div className="flex items-start gap-3">
+        {/* Drag handle */}
+        <div
+          className="shrink-0 mt-6 cursor-grab active:cursor-grabbing text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400"
+          title="Drag to reorder"
+        >
+          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+            <circle cx="9" cy="5" r="1.5" />
+            <circle cx="15" cy="5" r="1.5" />
+            <circle cx="9" cy="12" r="1.5" />
+            <circle cx="15" cy="12" r="1.5" />
+            <circle cx="9" cy="19" r="1.5" />
+            <circle cx="15" cy="19" r="1.5" />
+          </svg>
+        </div>
+
         <div className="flex-1 space-y-3">
           <div className="flex gap-3">
             <div className="flex-1">
@@ -303,9 +362,11 @@ function DataPointEditor({
             <div className="w-52">
               <label className="label">Type</label>
               <select
-                className="input"
+                className={`input ${typeLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
                 value={dp.type}
+                disabled={typeLocked}
                 onChange={(e) => onChange({ type: e.target.value as DataPointType })}
+                title={typeLocked ? 'Type cannot be changed after data has been recorded' : undefined}
               >
                 {DATA_POINT_TYPES.map((t) => (
                   <option key={t.value} value={t.value}>
@@ -313,6 +374,11 @@ function DataPointEditor({
                   </option>
                 ))}
               </select>
+              {typeLocked && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  Type locked — data exists
+                </p>
+              )}
             </div>
           </div>
 
@@ -347,67 +413,104 @@ function DataPointConfigEditor({
   switch (type) {
     case 'scale':
       return (
-        <div className="grid grid-cols-3 gap-2">
-          <div>
-            <label className="label text-xs">Min</label>
-            <input type="number" className="input" value={String(config.min ?? 0)} onChange={(e) => set('min', Number(e.target.value))} />
+        <div className="space-y-2">
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="label text-xs">Min</label>
+              <input type="number" className="input" value={String(config.min ?? 0)} onChange={(e) => set('min', Number(e.target.value))} />
+            </div>
+            <div>
+              <label className="label text-xs">Max</label>
+              <input type="number" className="input" value={String(config.max ?? 10)} onChange={(e) => set('max', Number(e.target.value))} />
+            </div>
+            <div>
+              <label className="label text-xs">Unit (optional)</label>
+              <input type="text" className="input" placeholder="e.g. kg" value={String(config.unit ?? '')} onChange={(e) => set('unit', e.target.value)} />
+            </div>
           </div>
           <div>
-            <label className="label text-xs">Max</label>
-            <input type="number" className="input" value={String(config.max ?? 10)} onChange={(e) => set('max', Number(e.target.value))} />
-          </div>
-          <div>
-            <label className="label text-xs">Unit (optional)</label>
-            <input type="text" className="input" placeholder="e.g. kg" value={String(config.unit ?? '')} onChange={(e) => set('unit', e.target.value)} />
+            <label className="label text-xs">Hint text (optional)</label>
+            <input type="text" className="input" placeholder="e.g. Rate your pain from 0 (none) to 10 (severe)" value={String(config.hint ?? '')} onChange={(e) => set('hint', e.target.value)} />
           </div>
         </div>
       )
     case 'boolean':
       return (
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="label text-xs">Yes label</label>
-            <input type="text" className="input" value={String(config.labelYes ?? 'Yes')} onChange={(e) => set('labelYes', e.target.value)} />
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="label text-xs">Yes label</label>
+              <input type="text" className="input" value={String(config.labelYes ?? 'Yes')} onChange={(e) => set('labelYes', e.target.value)} />
+            </div>
+            <div>
+              <label className="label text-xs">No label</label>
+              <input type="text" className="input" value={String(config.labelNo ?? 'No')} onChange={(e) => set('labelNo', e.target.value)} />
+            </div>
           </div>
           <div>
-            <label className="label text-xs">No label</label>
-            <input type="text" className="input" value={String(config.labelNo ?? 'No')} onChange={(e) => set('labelNo', e.target.value)} />
+            <label className="label text-xs">Hint text (optional)</label>
+            <input type="text" className="input" placeholder="e.g. Did you take your medication today?" value={String(config.hint ?? '')} onChange={(e) => set('hint', e.target.value)} />
           </div>
         </div>
       )
     case 'number':
       return (
-        <div className="grid grid-cols-3 gap-2">
-          <div>
-            <label className="label text-xs">Unit (optional)</label>
-            <input type="text" className="input" placeholder="e.g. mg, lbs" value={String(config.unit ?? '')} onChange={(e) => set('unit', e.target.value)} />
+        <div className="space-y-2">
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="label text-xs">Unit (optional)</label>
+              <input type="text" className="input" placeholder="e.g. mg, lbs" value={String(config.unit ?? '')} onChange={(e) => set('unit', e.target.value)} />
+            </div>
+            <div>
+              <label className="label text-xs">Min (optional)</label>
+              <input type="number" className="input" value={String(config.min ?? '')} onChange={(e) => set('min', e.target.value ? Number(e.target.value) : undefined)} />
+            </div>
+            <div>
+              <label className="label text-xs">Max (optional)</label>
+              <input type="number" className="input" value={String(config.max ?? '')} onChange={(e) => set('max', e.target.value ? Number(e.target.value) : undefined)} />
+            </div>
           </div>
           <div>
-            <label className="label text-xs">Min (optional)</label>
-            <input type="number" className="input" value={String(config.min ?? '')} onChange={(e) => set('min', e.target.value ? Number(e.target.value) : undefined)} />
+            <label className="label text-xs">Hint text (optional)</label>
+            <input type="text" className="input" placeholder="e.g. Enter your weight in pounds" value={String(config.hint ?? '')} onChange={(e) => set('hint', e.target.value)} />
           </div>
-          <div>
-            <label className="label text-xs">Max (optional)</label>
-            <input type="number" className="input" value={String(config.max ?? '')} onChange={(e) => set('max', e.target.value ? Number(e.target.value) : undefined)} />
-          </div>
+        </div>
+      )
+    case 'time_of_day':
+      return (
+        <div>
+          <label className="label text-xs">Hint text (optional)</label>
+          <input type="text" className="input" placeholder="e.g. What time did you wake up?" value={String(config.hint ?? '')} onChange={(e) => set('hint', e.target.value)} />
         </div>
       )
     case 'duration':
       return (
-        <div className="w-40">
-          <label className="label text-xs">Format</label>
-          <select className="input" value={String(config.unit ?? 'minutes')} onChange={(e) => set('unit', e.target.value)}>
-            <option value="minutes">Minutes (e.g. 45)</option>
-            <option value="hms">Hours:Minutes</option>
-          </select>
+        <div className="space-y-2">
+          <div className="w-40">
+            <label className="label text-xs">Format</label>
+            <select className="input" value={String(config.unit ?? 'minutes')} onChange={(e) => set('unit', e.target.value)}>
+              <option value="minutes">Minutes (e.g. 45)</option>
+              <option value="hms">Hours:Minutes</option>
+            </select>
+          </div>
+          <div>
+            <label className="label text-xs">Hint text (optional)</label>
+            <input type="text" className="input" placeholder="e.g. How long did you sleep?" value={String(config.hint ?? '')} onChange={(e) => set('hint', e.target.value)} />
+          </div>
         </div>
       )
     case 'short_text':
     case 'long_text':
       return (
-        <div>
-          <label className="label text-xs">Placeholder (optional)</label>
-          <input type="text" className="input" placeholder="Hint text shown in the input" value={String(config.placeholder ?? '')} onChange={(e) => set('placeholder', e.target.value)} />
+        <div className="space-y-2">
+          <div>
+            <label className="label text-xs">Placeholder text (optional)</label>
+            <input type="text" className="input" placeholder="Hint text shown inside the input field" value={String(config.placeholder ?? '')} onChange={(e) => set('placeholder', e.target.value)} />
+          </div>
+          <div>
+            <label className="label text-xs">Hint text (optional)</label>
+            <input type="text" className="input" placeholder="Helper text shown below the input" value={String(config.hint ?? '')} onChange={(e) => set('hint', e.target.value)} />
+          </div>
         </div>
       )
     default:

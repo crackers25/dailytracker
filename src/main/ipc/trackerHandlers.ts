@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { trackerRepo } from '../database/repos/trackerRepo'
 import { dataPointRepo } from '../database/repos/dataPointRepo'
+import { recordRepo } from '../database/repos/recordRepo'
 import type { DataPointType, DataPointConfig } from '../../shared/types'
 
 function mapTracker(t: ReturnType<typeof trackerRepo.findById>) {
@@ -89,7 +90,12 @@ export function registerTrackerHandlers(): void {
   ipcMain.handle('dataPoints:list', (_event, trackerId: number) => {
     try {
       const points = dataPointRepo.listByTracker(trackerId)
-      return { dataPoints: points.map(mapDataPoint) }
+      return {
+        dataPoints: points.map((dp) => ({
+          ...mapDataPoint(dp),
+          hasValues: recordRepo.dataPointHasValues(dp.id)
+        }))
+      }
     } catch (err) {
       return { error: String(err) }
     }

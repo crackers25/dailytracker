@@ -29,29 +29,35 @@ export interface ScaleConfig {
   max: number
   step: number
   unit?: string
+  hint?: string
 }
 
 export interface BooleanConfig {
   labelYes?: string
   labelNo?: string
+  hint?: string
 }
 
 export interface TextConfig {
   placeholder?: string
+  hint?: string
 }
 
 export interface NumberConfig {
   unit?: string
   min?: number
   max?: number
+  hint?: string
 }
 
 export interface TimeOfDayConfig {
   label?: string
+  hint?: string
 }
 
 export interface DurationConfig {
   unit: 'minutes' | 'hms'
+  hint?: string
 }
 
 export type DataPointConfig =

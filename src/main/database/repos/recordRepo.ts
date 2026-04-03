@@ -89,6 +89,14 @@ export const recordRepo = {
     return upsertRecord() as DbRecord
   },
 
+  dataPointHasValues(dataPointId: number): boolean {
+    const db = getDb()
+    const row = db
+      .prepare('SELECT COUNT(*) as cnt FROM record_values WHERE data_point_id = ?')
+      .get(dataPointId) as { cnt: number }
+    return row.cnt > 0
+  },
+
   delete(id: number): void {
     const db = getDb()
     db.prepare('DELETE FROM records WHERE id = ?').run(id)

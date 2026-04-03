@@ -28,16 +28,10 @@ export default function AddEditRecord(): React.ReactElement {
     const dps = (dpRes.dataPoints ?? []) as DataPoint[]
     setDataPoints(dps)
 
+    // Default all values to '' (blank / not recorded)
     const initialValues: Record<number, string> = {}
     dps.forEach((dp) => {
-      // Set sensible defaults
-      if (dp.type === 'scale') {
-        const cfg = dp.config as { min?: number; max?: number } | null
-        const mid = Math.round(((cfg?.min ?? 0) + (cfg?.max ?? 10)) / 2)
-        initialValues[dp.id] = String(mid)
-      } else {
-        initialValues[dp.id] = ''
-      }
+      initialValues[dp.id] = ''
     })
 
     if (recordRes.record && recordRes.values) {
@@ -66,10 +60,13 @@ export default function AddEditRecord(): React.ReactElement {
     setSaving(true)
     setError(null)
     try {
-      const payload = Object.entries(values).map(([dpId, value]) => ({
-        dataPointId: Number(dpId),
-        value
-      }))
+      // Only save non-blank values
+      const payload = Object.entries(values)
+        .filter(([, v]) => v !== '')
+        .map(([dpId, value]) => ({
+          dataPointId: Number(dpId),
+          value
+        }))
       const result = await window.api.records.upsert(trackerId, selectedDate, payload)
       if (result.error) {
         setError(result.error)
@@ -135,18 +132,41 @@ export default function AddEditRecord(): React.ReactElement {
             )}
 
             <div className="space-y-4">
-              {dataPoints.map((dp) => (
-                <div key={dp.id} className="card p-4">
-                  <label className="label text-sm">{dp.name}</label>
-                  <div className="mt-2">
+              {dataPoints.map((dp) => {
+                const val = values[dp.id] ?? ''
+                const hint = (dp.config as Record<string, unknown> | null)?.hint as string | undefined
+                  ?? (dp.config as Record<string, unknown> | null)?.placeholder as string | undefined
+                return (
+                  <div key={dp.id} className="card p-4">
+                    <div className="flex items-start justify-between mb-2">
+                      <label className="label text-sm mb-0">{dp.name}</label>
+                      {val !== '' && (
+                        <button
+                          type="button"
+                          onClick={() => updateValue(dp.id, '')}
+                          title="Clear value"
+                          className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5 -mt-0.5 ml-2 shrink-0"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
                     <DataPointInput
                       dataPoint={dp}
-                      value={values[dp.id] ?? ''}
+                      value={val}
                       onChange={(v) => updateValue(dp.id, v)}
                     />
+                    {hint && (
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5">{hint}</p>
+                    )}
+                    {val === '' && (
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5 italic">Not recorded</p>
+                    )}
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
 
             <div className="flex gap-3 mt-6">
