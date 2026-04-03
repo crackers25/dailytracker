@@ -24,6 +24,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build app
+        run: npm run build
+
       - name: Rebuild native modules for arm64
         run: npx electron-rebuild -f -w better-sqlite3 --arch arm64
 
